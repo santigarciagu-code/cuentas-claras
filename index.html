@@ -154,6 +154,14 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:28px;heigh
 .tile span{font-size:12px;color:var(--mut)}
 .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom) + 96px);transform:translateX(-50%) translateY(20px);background:var(--ink);color:var(--bg);padding:10px 18px;border-radius:999px;font-size:14px;font-weight:600;opacity:0;transition:.25s;z-index:60;pointer-events:none;white-space:nowrap}
 .toast.on{opacity:1;transform:translateX(-50%)}
+.modal{position:fixed;left:50%;top:50%;width:min(340px,calc(100vw - 40px));transform:translate(-50%,-46%) scale(.96);background:var(--card);border-radius:24px;padding:24px 20px 18px;z-index:50;text-align:center;opacity:0;pointer-events:none;transition:.22s;box-shadow:0 20px 60px rgba(0,0,0,.25)}
+.modal.on{opacity:1;pointer-events:auto;transform:translate(-50%,-50%) scale(1)}
+.modal .mi{width:60px;height:60px;border-radius:18px;background:var(--grad);color:#fff;font-size:28px;display:flex;align-items:center;justify-content:center;margin:0 auto 12px}
+.modal b.t{display:block;font-size:19px;font-weight:800;letter-spacing:-.01em}
+.modal p{color:var(--mut);font-size:14px;margin:6px 0 4px;line-height:1.45}
+.modal .btn{margin-top:14px}.modal .btn.sec{margin-top:8px}
+.ov2{position:fixed;inset:0;background:rgba(10,8,25,.45);z-index:49;opacity:0;pointer-events:none;transition:opacity .2s}
+.ov2.on{opacity:1;pointer-events:auto}
 .sett .row{padding:13px 14px}
 .share{display:flex;align-items:center;gap:12px}
 .share .ic{width:44px;height:44px;border-radius:14px;background:var(--acc2);font-size:22px}
@@ -178,10 +186,12 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:28px;heigh
 <div class="ov" id="ov" data-a="close"></div>
 <div class="sheet" id="sheet"></div>
 <div class="toast" id="toast"></div>
+<div class="ov2" id="ov2"></div>
+<div class="modal" id="modal" role="dialog" aria-modal="true"></div>
 
 <script>
 'use strict';
-var VERSION='v9';
+var VERSION='v10';
 var APP='cuentas-claras';
 
 // ---------- utilidades ----------
@@ -569,7 +579,9 @@ document.addEventListener('click',function(e){
     case 'recv': abrirRecibir(); break;
     case 'paste': pegar(); break;
     case 'pastego': var ta=$('#r-txt'); if(ta&&ta.value.trim())recibirTexto(ta.value); else toast('Pega primero el texto'); break;
-    case 'update': actualizar(); break;
+    case 'update': buscarVersion(true); break;
+    case 'upd-now': cerrarModal(); actualizar(); break;
+    case 'upd-later': skipV=t.dataset.v; cerrarModal(); break;
     case 'theme': LS.set('cc_theme',v); applyTheme(); render(); break;
   }
 });
@@ -755,6 +767,27 @@ function importar(ev){
   fl.text().then(recibirTexto).catch(function(e){toast('Archivo no válido: '+e.message)});
   ev.target.value='';
 }
+// ---------- aviso de nueva versión ----------
+function vnum(v){return parseInt(String(v).replace(/\D/g,''),10)||0}
+var lastCheck=0, skipV='';
+function buscarVersion(manual){
+  if(!manual&&(Date.now()-lastCheck<60000||location.protocol==='file:'))return;
+  lastCheck=Date.now();
+  if(manual)toast('Buscando actualizaciones…');
+  fetch('./index.html?v='+Date.now(),{cache:'no-store'}).then(function(r){if(!r.ok)throw new Error(r.status);return r.text()}).then(function(t){
+    var m=t.match(/var VERSION='(v\d+)'/); if(!m)throw new Error('sin versión');
+    var nueva=m[1];
+    if(vnum(nueva)>vnum(VERSION)){ if(manual||skipV!==nueva)mostrarModal(nueva) }
+    else if(manual)toast('✅ Ya tienes la última versión ('+VERSION+')');
+  }).catch(function(){ if(manual)actualizar() });
+}
+function mostrarModal(nueva){
+  $('#modal').innerHTML='<div class="mi">✨</div><b class="t">Nueva versión disponible</b><p>Tienes la <b>'+esc(VERSION)+'</b> y ya está lista la <b>'+esc(nueva)+'</b>.<br>Tus gastos no se tocan.</p>'+
+    '<button class="btn" data-a="upd-now">Actualizar ahora</button><button class="btn sec" data-a="upd-later" data-v="'+esc(nueva)+'">Más tarde</button>';
+  $('#ov2').classList.add('on'); $('#modal').classList.add('on');
+}
+function cerrarModal(){$('#ov2').classList.remove('on');$('#modal').classList.remove('on')}
+document.addEventListener('visibilitychange',function(){if(document.visibilityState==='visible')buscarVersion(false)});
 function actualizar(){
   toast('Buscando la última versión…');
   var p=[];
@@ -775,6 +808,7 @@ function init(){
   });
 }
 init();
+setTimeout(function(){buscarVersion(false)},1500);
 if('serviceWorker' in navigator&&location.protocol==='https:'){navigator.serviceWorker.register('sw.js').catch(function(){})}
 </script>
 </body>
