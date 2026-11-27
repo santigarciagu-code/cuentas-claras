@@ -181,7 +181,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:28px;heigh
 
 <script>
 'use strict';
-var VERSION='v4';
+var VERSION='v5';
 var APP='cuentas-claras';
 
 // ---------- utilidades ----------
@@ -389,6 +389,7 @@ function renderRep(){
   var dm=Math.max.apply(null,Object.values(dd).concat([1]));
   Object.keys(dd).forEach(function(d){var nm=d==='comun'?'Cuenta común':'Cuenta personal de '+(P(d)||{}).nombre;h+='<div class="hb"><span>'+esc(nm)+'</span><i><u style="width:'+(dd[d]/dm*100)+'%;background:'+(d==='comun'?'#8f45f2':esc((P(d)||{}).color))+'"></u></i><b class="num">'+eur0(dd[d]*k)+'</b></div>'});
   h+='</div>';
+  h+=excelCard();
   $('#v-rep').innerHTML=h;
 }
 
@@ -399,6 +400,7 @@ function renderCfg(){
   h+='<h2>Categorías</h2><div class="grp sett">'+cats().map(function(c,i){var n=alive(S.gastos).filter(function(g){return g.cat===c.id}).length;return '<button class="row"'+(i?'':' style="border-top:0"')+' data-a="editc" data-v="'+c.id+'"><span class="ic" style="background:'+esc(c.color)+'22">'+esc(c.emoji)+'</span><span class="t"><b>'+esc(c.nombre)+'</b><small>Reparto por defecto '+c.reparto+'/'+(100-c.reparto)+' · '+n+' gasto'+(n===1?'':'s')+'</small></span><span class="sub">›</span></button>'}).join('')+
      '<button class="row" data-a="editc" data-v=""><span class="ic" style="background:var(--acc2);color:var(--acc)">＋</span><span class="t"><b style="color:var(--acc)">Nueva categoría</b></span></button></div>';
   h+='<h2>Compartir con tu pareja</h2>'+shareCard(true);
+  h+='<h2>Exportar</h2>'+excelCard();
   h+='<h2>Copia de seguridad</h2><div class="card"><b>📁 Guardar copia en el móvil</b><div class="sub" style="margin:4px 0 0">Se abre el menú de compartir: elige <b>Guardar en Archivos</b>. Es tu copia de seguridad: guárdala de vez en cuando.</div><button class="btn" data-a="backup">Guardar copia</button><div class="sub" style="margin-top:8px">'+(b?'Última copia: '+esc(b.t):'Todavía no hay copia.')+'</div></div>';
   h+='<div class="card"><b>🔄 Juntar o restaurar una copia</b><div class="sub" style="margin:4px 0 0">Elige un archivo <b>cuentas-claras-….json</b> (tuyo o de tu pareja). Se añaden los gastos nuevos y, si un gasto se editó en los dos móviles, gana el cambio más reciente. No se duplica nada.</div><label class="btn sec" style="text-align:center">Elegir archivo<input type="file" id="rf" accept="application/json,.json" style="display:none"></label></div>';
   h+='<h2>App</h2><div class="card"><b>Apariencia</b><div class="chips" style="margin-top:10px">'+[['','Automático'],['light','Claro'],['dark','Oscuro']].map(function(t){return '<button class="chip'+(LS.get('cc_theme','')===t[0]?' on':'')+'" data-a="theme" data-v="'+t[0]+'">'+t[1]+'</button>'}).join('')+'</div></div>';
@@ -565,6 +567,7 @@ document.addEventListener('click',function(e){
     case 'delc': var used=alive(S.gastos).filter(function(g){return g.cat===ed.id}).length; if(used){toast('Tiene '+used+' gastos: muévelos antes');break} if(confirmTwice(t,'Toca otra vez para eliminar')){var c=S.categorias.find(function(x){return x.id===ed.id});c.del=true;touch(c);save();closeSheet();render()} break;
     case 'backup': exportar(); break;
     case 'send': enviarPareja(); break;
+    case 'xlsx': exportarExcel(); break;
     case 'sendtxt': copiarTexto(); break;
     case 'recv': abrirRecibir(); break;
     case 'paste': pegar(); break;
@@ -600,6 +603,108 @@ function merge(A,B){
   if(B.ajustes&&(B.ajustes.u||0)>(A.ajustes.u||0))A.ajustes=B.ajustes;
   return res;
 }
+// ---------- exportar a Excel (.xlsx creado en el móvil, sin librerías) ----------
+var CRCT=(function(){var t=[],c,n,k;for(n=0;n<256;n++){c=n;for(k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[n]=c>>>0}return t})();
+function crc32(b){var c=0xFFFFFFFF;for(var i=0;i<b.length;i++)c=CRCT[(c^b[i])&255]^(c>>>8);return (c^0xFFFFFFFF)>>>0}
+function zip(files){
+  var enc=new TextEncoder(), parts=[], cen=[], off=0;
+  function u16(v){return [v&255,(v>>>8)&255]} function u32(v){return [v&255,(v>>>8)&255,(v>>>16)&255,(v>>>24)&255]}
+  files.forEach(function(f){
+    var name=enc.encode(f[0]), data=enc.encode(f[1]), crc=crc32(data);
+    var common=[].concat(u16(20),u16(0x0800),u16(0),u16(0),u16(0x21),u32(crc),u32(data.length),u32(data.length),u16(name.length),u16(0));
+    var loc=new Uint8Array([].concat(u32(0x04034b50),common)); parts.push(loc,name,data);
+    cen.push(new Uint8Array([].concat(u32(0x02014b50),u16(20),common,u16(0),u16(0),u16(0),u32(0),u32(off))),name);
+    off+=loc.length+name.length+data.length;
+  });
+  var csize=cen.reduce(function(s,a){return s+a.length},0);
+  var end=new Uint8Array([].concat(u32(0x06054b50),u16(0),u16(0),u16(files.length),u16(files.length),u32(csize),u32(off),u16(0)));
+  return new Blob(parts.concat(cen,[end]),{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+}
+function xe(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]}).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g,'')}
+function colL(i){var s='';i++;while(i){var m=(i-1)%26;s=String.fromCharCode(65+m)+s;i=(i-m-1)/26}return s}
+function xdate(iso){var p=String(iso).split('-');return (Date.UTC(+p[0],+p[1]-1,+p[2])-Date.UTC(1899,11,30))/864e5}
+// estilos: 0 normal · 1 cabecera · 2 euros · 3 total texto · 4 total euros · 5 fecha · 6 porcentaje · 7 título
+var XSTY='<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="2"><numFmt numFmtId="164" formatCode="#,##0.00\\ &quot;€&quot;"/><numFmt numFmtId="165" formatCode="dd/mm/yyyy"/></numFmts>'+
+ '<fonts count="4"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="15"/><color rgb="FF5B3DF0"/><name val="Calibri"/></font></fonts>'+
+ '<fills count="4"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF6C4CF5"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFEFEAFF"/></patternFill></fill></fills>'+
+ '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="8"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf fontId="1" fillId="2" applyFont="1" applyFill="1" numFmtId="0" borderId="0" xfId="0"/><xf numFmtId="164" applyNumberFormat="1" fontId="0" fillId="0" borderId="0" xfId="0"/><xf fontId="2" fillId="3" applyFont="1" applyFill="1" numFmtId="0" borderId="0" xfId="0"/><xf numFmtId="164" fontId="2" fillId="3" applyNumberFormat="1" applyFont="1" applyFill="1" borderId="0" xfId="0"/><xf numFmtId="165" applyNumberFormat="1" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="9" applyNumberFormat="1" fontId="0" fillId="0" borderId="0" xfId="0"/><xf fontId="3" applyFont="1" numFmtId="0" fillId="0" borderId="0" xfId="0"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>';
+// celda: string, número, {v,s}, {f,s} (fórmula), {d:'AAAA-MM-DD'} o null
+function xsheet(rows,widths,freeze){
+  var x='<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">';
+  x+='<sheetViews><sheetView workbookViewId="0">'+(freeze?'<pane ySplit="'+freeze+'" topLeftCell="A'+(freeze+1)+'" activePane="bottomLeft" state="frozen"/>':'')+'</sheetView></sheetViews>';
+  x+='<cols>'+widths.map(function(w,i){return '<col min="'+(i+1)+'" max="'+(i+1)+'" width="'+w+'" customWidth="1"/>'}).join('')+'</cols><sheetData>';
+  rows.forEach(function(r,ri){
+    x+='<row r="'+(ri+1)+'">';
+    r.forEach(function(c,ci){
+      if(c==null||c==='')return; var ref=colL(ci)+(ri+1), o=(typeof c==='object')?c:{v:c};
+      var s=o.s?' s="'+o.s+'"':'';
+      if(o.f!=null)x+='<c r="'+ref+'"'+s+'><f>'+xe(o.f)+'</f></c>';
+      else if(o.d)x+='<c r="'+ref+'" s="5"><v>'+xdate(o.d)+'</v></c>';
+      else if(typeof o.v==='number')x+='<c r="'+ref+'"'+s+'><v>'+(Math.round(o.v*10000)/10000)+'</v></c>';
+      else x+='<c r="'+ref+'"'+s+' t="inlineStr"><is><t xml:space="preserve">'+xe(o.v)+'</t></is></c>';
+    });
+    x+='</row>';
+  });
+  return x+'</sheetData></worksheet>';
+}
+function xlsx(sheets){
+  var f=[['[Content_Types].xml','<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'+sheets.map(function(s,i){return '<Override PartName="/xl/worksheets/sheet'+(i+1)+'.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'}).join('')+'</Types>'],
+    ['_rels/.rels','<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>'],
+    ['xl/workbook.xml','<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>'+sheets.map(function(s,i){return '<sheet name="'+xe(s.name)+'" sheetId="'+(i+1)+'" r:id="rId'+(i+1)+'"/>'}).join('')+'</sheets><calcPr calcId="191029" fullCalcOnLoad="1"/></workbook>'],
+    ['xl/_rels/workbook.xml.rels','<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'+sheets.map(function(s,i){return '<Relationship Id="rId'+(i+1)+'" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet'+(i+1)+'.xml"/>'}).join('')+'<Relationship Id="rId'+(sheets.length+1)+'" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>'],
+    ['xl/styles.xml',XSTY]];
+  sheets.forEach(function(s,i){f.push(['xl/worksheets/sheet'+(i+1)+'.xml',xsheet(s.rows,s.widths,s.freeze)])});
+  return zip(f);
+}
+function H(a){return a.map(function(t){return {v:t,s:1}})}
+function E(n){return {v:r2(n||0),s:2}}
+function sumRow(label,cols,first,last,ncols){var r=[{v:label,s:3}];for(var i=1;i<ncols;i++)r.push(cols.indexOf(i)>=0?{f:'SUM('+colL(i)+first+':'+colL(i)+last+')',s:4}:{v:'',s:3});return r.map(function(c){return c.v===''?{v:' ',s:3}:c})}
+function libroExcel(){
+  var ps=pers(), A=ps[0], B=ps[1], nA=A.nombre, nB=B.nombre;
+  var quien=function(g){return g.titular==='comun'?'Común':(P(g.titular)||{}).nombre};
+  var cta=function(g){return g.desde==='comun'?'Cuenta común':(g.tipo==='fijo'?'Cuenta personal de ':'')+(P(g.desde)||{}).nombre};
+  // 1. Resumen mensual
+  var F=calcFijos(), ms=puntuales().map(function(g){return String(g.fecha).slice(0,7)}), hoy=ymOf(new Date());
+  var desde=[hoy.slice(0,4)+'-01'].concat(ms).sort()[0], hasta=[hoy].concat(ms).sort().pop(), meses=[];
+  for(var m=desde;m<=hasta;m=ymAdd(m,1))meses.push(m);
+  var R=[[{v:'Cuentas Claras · resumen mensual',s:7}],['Exportado el '+new Date().toLocaleString('es-ES')],[],
+    H(['Mes','Fijo '+nA,'Fijo '+nB,'Puntuales '+nA,'Puntuales '+nB,'Ingresa '+nA,'Ingresa '+nB,'Total a la cuenta común','Gasto puntual del mes'])];
+  meses.forEach(function(m){var Pu=calcPunt(m), r=R.length+1;
+    R.push([ymName(m).replace(/^./,function(c){return c.toUpperCase()}),E(F.p[A.id].aport),E(F.p[B.id].aport),E(Pu.p[A.id].aport),E(Pu.p[B.id].aport),{f:'B'+r+'+D'+r,s:2},{f:'C'+r+'+E'+r,s:2},{f:'F'+r+'+G'+r,s:2},E(Pu.total)])});
+  R.push(sumRow('Total',[1,2,3,4,5,6,7,8],5,R.length,9));
+  // 2. Gastos fijos
+  var fx=fijos().slice().sort(function(a,b){return C(a.cat).orden-C(b.cat).orden||mensual(b)-mensual(a)});
+  var Fx=[H(['Concepto','Categoría','De quién','% '+nA,'% '+nB,'Importe','Cada (meses)','Al mes','Al año','Parte '+nA+'/mes','Parte '+nB+'/mes','Se paga desde','Activo','Notas'])];
+  fx.forEach(function(g){var r=Fx.length+1, on=g.activo!==false, sa=share(g,A.id), sb=share(g,B.id);
+    Fx.push([g.concepto,C(g.cat).nombre,quien(g),{v:sa,s:6},{v:sb,s:6},E(g.importe),+g.periodo||1,on?{f:'F'+r+'/G'+r,s:2}:E(0),{f:'H'+r+'*12',s:2},{f:'H'+r+'*D'+r,s:2},{f:'H'+r+'*E'+r,s:2},cta(g),on?'Sí':'No (pausado)',g.notas||''])});
+  Fx.push(sumRow('Total',[7,8,9,10],2,Fx.length,14));
+  // 3. Gastos puntuales
+  var pu=puntuales().slice().sort(function(a,b){return String(a.fecha).localeCompare(b.fecha)});
+  var Px=[H(['Fecha','Concepto','Categoría','Importe','De quién','% '+nA,'% '+nB,'Parte '+nA,'Parte '+nB,'Pagado por','Notas'])];
+  pu.forEach(function(g){var r=Px.length+1;
+    Px.push([{d:g.fecha},g.concepto,C(g.cat).nombre,E(g.importe),quien(g),{v:share(g,A.id),s:6},{v:share(g,B.id),s:6},{f:'D'+r+'*F'+r,s:2},{f:'D'+r+'*G'+r,s:2},g.desde==='comun'?'Cuenta común':(P(g.desde)||{}).nombre,g.notas||''])});
+  if(pu.length)Px.push(sumRow('Total',[3,7,8],2,Px.length,11)); else Px.push(['Todavía no hay gastos puntuales']);
+  // 4. Por categoría
+  var Cx=[H(['Categoría','Fijos al mes','Fijos al año','Puntuales (total)','Reparto por defecto '+nA])];
+  cats().forEach(function(c){var r=Cx.length+1, pt=puntuales().filter(function(g){return g.cat===c.id}).reduce(function(s,g){return s+(+g.importe||0)},0);
+    Cx.push([c.nombre,E(F.cat[c.id]||0),{f:'B'+r+'*12',s:2},E(pt),{v:(c.reparto==null?50:c.reparto)/100,s:6}])});
+  Cx.push(sumRow('Total',[1,2,3],2,Cx.length,5));
+  return xlsx([
+    {name:'Resumen mensual',rows:R,widths:[18,14,14,16,16,14,14,22,20],freeze:4},
+    {name:'Gastos fijos',rows:Fx,widths:[26,16,12,9,9,12,12,12,12,15,15,24,12,30],freeze:1},
+    {name:'Gastos puntuales',rows:Px,widths:[12,26,16,12,12,9,9,12,12,16,30],freeze:1},
+    {name:'Por categoría',rows:Cx,widths:[20,14,14,18,22],freeze:1}
+  ]);
+}
+function exportarExcel(){
+  var blob;
+  try{blob=libroExcel()}catch(e){toast('No se pudo crear el Excel: '+e.message);return}
+  var file=new File([blob],'cuentas-claras-'+today()+'.xlsx',{type:blob.type});
+  function done(){toast('📊 Excel listo')}
+  if(navigator.canShare&&navigator.canShare({files:[file]})){navigator.share({files:[file],title:'Cuentas Claras en Excel'}).then(done).catch(function(){})}
+  else{var a=document.createElement('a');a.href=URL.createObjectURL(file);a.download=file.name;document.body.appendChild(a);a.click();a.remove();done()}
+}
+function excelCard(){return '<div class="card"><div class="share"><span class="ic">📊</span><span class="t"><b>Exportar a Excel</b><small>4 hojas: resumen mensual, gastos fijos, puntuales y categorías. Se abre en Excel, Numbers o Google Sheets.</small></span></div><button class="btn" data-a="xlsx">Crear archivo Excel</button></div>'}
 function otra(){var m=me();var o=pers().filter(function(p){return p.id!==m});return m&&o.length?o[0]:null}
 function shareCard(full){
   var o=otra(), nm=o?esc(o.nombre):'tu pareja', yo=P(me());
