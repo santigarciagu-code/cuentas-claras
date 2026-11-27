@@ -181,7 +181,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:28px;heigh
 
 <script>
 'use strict';
-var VERSION='v8';
+var VERSION='v9';
 var APP='cuentas-claras';
 
 // ---------- utilidades ----------
@@ -294,9 +294,8 @@ function avatar(p,size){size=size||34;return '<span class="av" style="background
 
 function renderHome(){
   var ps=pers(), F=calcFijos(), Pu=calcPunt(curYM), h='';
-  var hoy=new Date(), hr=hoy.getHours(), saludo=hr<14?'Buenos días':hr<21?'Buenas tardes':'Buenas noches';
   var yo=P(me());
-  h+='<div class="top"><div><div class="sub">'+saludo+(yo?', '+esc(yo.nombre):'')+'</div><h1>Cuentas Claras</h1></div><span class="ver">'+VERSION+'</span></div>';
+  h+='<div class="top"><h1>Cuentas Claras</h1><span class="ver">'+VERSION+'</span></div>';
   var w=backupWarn(); if(w)h+='<div class="bar warn">📁 '+w+' <button data-a="gocfg">Guardar copia</button></div>';
   if(!yo)h+='<div class="card"><b>¿Quién usa este móvil?</b><div class="sub" style="margin:4px 0 12px">Así los gastos que apuntes saldrán como pagados por ti.</div><div class="two">'+ps.map(function(p){return '<button class="btn sec" style="margin:0" data-a="setme" data-v="'+p.id+'">'+esc(p.nombre)+'</button>'}).join('')+'</div></div>';
   var tot=0; ps.forEach(function(p){tot+=F.p[p.id].aport+Pu.p[p.id].aport});
