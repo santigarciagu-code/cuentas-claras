@@ -191,7 +191,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:26px;heigh
 
 <script>
 'use strict';
-var VERSION='v6';
+var VERSION='v7';
 var APP='cuentas-claras';
 
 // ---------- utilidades ----------
@@ -325,11 +325,6 @@ function renderHome(){
     rows.map(function(r){return '<tr class="'+r[2]+'"><td>'+r[0]+'</td>'+ps.map(function(p){return '<td>'+eur(val(p,r[1]))+'</td>'}).join('')+'</tr>'}).join('')+
     (dir?'<tr><td>Ya paga desde su cuenta personal</td>'+ps.map(function(p){var d=val(p,'directo');return '<td>'+(d?'− '+eur(d):'—')+'</td>'}).join('')+'</tr>':'')+
     '<tr class="acc"><td>Ingresa en la cuenta común</td>'+ps.map(function(p,i){return '<td>'+eur(v[i])+'</td>'}).join('')+'</tr></table>';
-  // pareja
-  var o=otra(), nm=o?esc(o.nombre):'tu pareja', sent=LS.get('cc_sent',''), recv=LS.get('cc_recv','');
-  h+='<h2>Compartir con '+nm+'</h2><div>'+
-    '<button class="lnk" data-a="send">'+ico('send')+'<span class="t">Enviar mis datos<small>'+(sent?'Último envío: '+esc(sent):'Por WhatsApp, AirDrop o Mensajes')+'</small></span><span class="go">'+ico('chev')+'</span></button>'+
-    '<button class="lnk" data-a="recv">'+ico('recv')+'<span class="t">Recibir sus datos<small>'+(recv?'Última vez: '+esc(recv):'Se juntan con los tuyos sin duplicar')+'</small></span><span class="go">'+ico('chev')+'</span></button></div>';
   // puntuales
   var rec=puntuales(curYM).sort(function(a,b){return String(b.fecha).localeCompare(a.fecha)||(b.u-a.u)}).slice(0,6);
   h+='<h2>Gastos puntuales de '+MESES[+curYM.split('-')[1]-1]+'</h2>';
@@ -406,7 +401,6 @@ function renderCfg(){
   h+='<h2>Categorías</h2><div class="grp sett">'+cats().map(function(c,i){var n=alive(S.gastos).filter(function(g){return g.cat===c.id}).length;return '<button class="row"'+(i?'':' style="border-top:0"')+' data-a="editc" data-v="'+c.id+'"><span class="ic" style="background:'+esc(c.color)+'22">'+esc(c.emoji)+'</span><span class="t"><b>'+esc(c.nombre)+'</b><small>Reparto por defecto '+c.reparto+'/'+(100-c.reparto)+' · '+n+' gasto'+(n===1?'':'s')+'</small></span><span class="sub">›</span></button>'}).join('')+
      '<button class="row" data-a="editc" data-v=""><span class="ic" style="background:var(--acc2);color:var(--acc)">＋</span><span class="t"><b style="color:var(--acc)">Nueva categoría</b></span></button></div>';
   h+='<h2>Compartir con tu pareja</h2>'+shareCard(true);
-  h+='<h2>Exportar</h2>'+excelCard();
   h+='<h2>Copia de seguridad</h2><div class="card"><b>Guardar copia en el móvil</b><div class="sub" style="margin:4px 0 0">Se abre el menú de compartir: elige <b>Guardar en Archivos</b>. Es tu copia de seguridad: guárdala de vez en cuando.</div><button class="btn" data-a="backup">Guardar copia</button><div class="sub" style="margin-top:8px">'+(b?'Última copia: '+esc(b.t):'Todavía no hay copia.')+'</div></div>';
   h+='<div class="card"><b>Juntar o restaurar una copia</b><div class="sub" style="margin:4px 0 0">Elige un archivo <b>cuentas-claras-….json</b> (tuyo o de tu pareja). Se añaden los gastos nuevos y, si un gasto se editó en los dos móviles, gana el cambio más reciente. No se duplica nada.</div><label class="btn sec" style="text-align:center">Elegir archivo<input type="file" id="rf" accept="application/json,.json" style="display:none"></label></div>';
   h+='<h2>App</h2><div class="card"><b>Apariencia</b><div class="chips" style="margin-top:10px">'+[['','Automático'],['light','Claro'],['dark','Oscuro']].map(function(t){return '<button class="chip'+(LS.get('cc_theme','')===t[0]?' on':'')+'" data-a="theme" data-v="'+t[0]+'">'+t[1]+'</button>'}).join('')+'</div></div>';
