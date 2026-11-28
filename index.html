@@ -191,7 +191,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:28px;heigh
 
 <script>
 'use strict';
-var VERSION='v13';
+var VERSION='v14';
 var APP='cuentas-claras';
 
 // ---------- utilidades ----------
@@ -317,7 +317,7 @@ function renderHome(){
   h+='<div class="hero"><div class="top"><div class="lbl">A ingresar en '+esc(comun())+'</div><div class="mnav"><button data-a="m-">‹</button><span>'+ymName(curYM)+'</span><button data-a="m+">›</button></div></div>'+
      '<div class="big num">'+eur(tot)+'</div>'+(ps.length<2?'':'<div class="who">'+ps.map(function(p){var v=F.p[p.id].aport+Pu.p[p.id].aport;return '<div><span>'+esc(p.nombre)+'</span><b class="num">'+eur(v)+'</b></div>'}).join('')+'</div>');
   var pt=puntuales(curYM).length;
-  if(pt){h+='<div class="extra">Fijo mensual: '+ps.map(function(p){return esc(p.nombre)+' '+eur(F.p[p.id].aport)}).join(' · ')+'<br>Ajuste por '+pt+' gasto'+(pt>1?'s':'')+' puntual'+(pt>1?'es':'')+': '+ps.map(function(p){var a=Pu.p[p.id].aport;return esc(p.nombre)+' '+(a>=0?'+':'')+eur(a)}).join(' · ')+'</div>'}
+  if(pt){h+='<div class="extra">Fijo mensual: '+ps.map(function(p){return (ps.length>1?esc(p.nombre)+' ':'')+eur(F.p[p.id].aport)}).join(' · ')+'<br>Ajuste por '+pt+' gasto'+(pt>1?'s':'')+' puntual'+(pt>1?'es':'')+': '+ps.map(function(p){var a=Pu.p[p.id].aport;return (ps.length>1?esc(p.nombre)+' ':'')+(a>=0?'+':'')+eur(a)}).join(' · ')+'</div>'}
   else h+='<div class="extra">Gastos fijos de '+eur(F.total)+'/mes · '+eur(F.enComun)+' se cargan en '+esc(comun())+'</div>';
   h+='</div>';
   if(solo()){
