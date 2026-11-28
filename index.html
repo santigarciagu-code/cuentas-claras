@@ -191,7 +191,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:28px;heigh
 
 <script>
 'use strict';
-var VERSION='v12';
+var VERSION='v13';
 var APP='cuentas-claras';
 
 // ---------- utilidades ----------
@@ -253,40 +253,45 @@ function touch(o){o.u=now();return o}
 
 // ---------- modelo ----------
 function alive(a){return a.filter(function(x){return !x.del})}
-function pers(){return alive(S.personas).sort(function(a,b){return (a.orden||0)-(b.orden||0)}).slice(0,2)}
+function solo(){return !!(S&&S.ajustes&&S.ajustes.modo==='solo')}
+function pers(){return alive(S.personas).sort(function(a,b){return (a.orden||0)-(b.orden||0)}).slice(0,solo()?1:2)}
 function P(id){return S.personas.find(function(p){return p.id===id})}
 function cats(){return alive(S.categorias).sort(function(a,b){return (a.orden||0)-(b.orden||0)})}
 function C(id){return S.categorias.find(function(c){return c.id===id})||{nombre:'Sin categoría',emoji:'🧾',color:'#64748b',reparto:50}}
 function fijos(){return alive(S.gastos).filter(function(g){return g.tipo==='fijo'})}
 function puntuales(ym){return alive(S.gastos).filter(function(g){return g.tipo==='puntual'&&(!ym||String(g.fecha).slice(0,7)===ym)})}
-function comun(){return 'la cuenta común'}
+function comun(){return solo()?'la cuenta de gastos':'la cuenta común'}
+function CC(){return solo()?'Cuenta de gastos':'Cuenta común'}
 function mensual(g){if(g.tipo!=='fijo'||g.activo===false)return 0; return (+g.importe||0)/Math.max(1,+g.periodo||1)}
 function share(g,pid){
-  var ps=pers(); if(g.titular==='comun'){var r=(g.reparto==null?50:+g.reparto)/100; return pid===ps[0].id?r:(1-r)}
+  var ps=pers(); if(solo())return pid===ps[0].id?1:0;
+  if(g.titular==='comun'){var r=(g.reparto==null?50:+g.reparto)/100; return pid===ps[0].id?r:(1-r)}
   return g.titular===pid?1:0;
 }
 // Cada persona ingresa en la cuenta común: su parte de TODOS los gastos − lo que paga directamente desde su propia cuenta.
 function calc(list,amountFn){
   var ps=pers(), out={total:0,enComun:0,cat:{},p:{}};
   ps.forEach(function(p){out.p[p.id]={parte:0,directo:0,aport:0,comunParte:0,propio:0}});
+  var so=solo();
   list.forEach(function(g){
     var m=amountFn(g); if(!m)return;
+    var desde=(so&&g.desde!=='comun')?ps[0].id:g.desde;
     out.total+=m; if(g.desde==='comun')out.enComun+=m;
     out.cat[g.cat]=(out.cat[g.cat]||0)+m;
-    ps.forEach(function(p){var s=share(g,p.id)*m; var o=out.p[p.id]; o.parte+=s; if(g.titular==='comun')o.comunParte+=s; else o.propio+=s; if(g.desde===p.id)o.directo+=m});
+    ps.forEach(function(p){var s=share(g,p.id)*m; var o=out.p[p.id]; o.parte+=s; if(g.titular==='comun')o.comunParte+=s; else o.propio+=s; if(desde===p.id)o.directo+=m});
   });
   ps.forEach(function(p){var o=out.p[p.id];o.aport=o.parte-o.directo});
   return out;
 }
 function calcFijos(){return calc(fijos(),mensual)}
 function calcPunt(ym){return calc(puntuales(ym),function(g){return +g.importe||0})}
-function repTxt(g){var ps=pers(); if(g.titular!=='comun')return 'Solo '+(P(g.titular)||{}).nombre; var r=g.reparto==null?50:+g.reparto; return r===50?'Común 50/50':'Común '+r+'/'+(100-r)}
-function desdeTxt(d){return d==='comun'?'cuenta común':'cuenta personal'}
+function repTxt(g){var ps=pers(); if(solo())return ''; if(g.titular!=='comun')return 'Solo '+(P(g.titular)||{}).nombre; var r=g.reparto==null?50:+g.reparto; return r===50?'Común 50/50':'Común '+r+'/'+(100-r)}
+function desdeTxt(d){return d==='comun'?CC().toLowerCase():'cuenta personal'}
 function perTxt(n){n=+n||1;var f=PERIODOS.find(function(x){return x[0]===n});return f?f[1]:'Cada '+n+' meses'}
 
 // ---------- estado UI ----------
 var view='home', curYM=ymOf(new Date()), gTab='fijo', gQ='', repMode='mes', repYM=curYM;
-function me(){return LS.get('cc_me','')}
+function me(){if(S&&solo())return pers()[0].id;return LS.get('cc_me','')}
 
 // ---------- vistas ----------
 function show(v){view=v;['home','gastos','rep','cfg'].forEach(function(x){$('#v-'+x).classList.toggle('hide',x!==v)});document.querySelectorAll('nav button[data-v]').forEach(function(b){b.classList.toggle('on',b.dataset.v===v)});render();window.scrollTo(0,0)}
@@ -307,16 +312,25 @@ function renderHome(){
   var yo=P(me());
   h+='<div class="top"><h1>💶 Cuentas Claras</h1><span class="ver">'+VERSION+'</span></div>';
   var w=backupWarn(); if(w)h+='<div class="bar warn">📁 '+w+' <button data-a="gocfg">Guardar copia</button></div>';
-  if(!yo)h+='<div class="card"><b>¿Quién usa este móvil?</b><div class="sub" style="margin:4px 0 12px">Así los gastos que apuntes saldrán como pagados por ti.</div><div class="two">'+ps.map(function(p){return '<button class="btn sec" style="margin:0" data-a="setme" data-v="'+p.id+'">'+esc(p.nombre)+'</button>'}).join('')+'</div></div>';
+  if(!yo)h+='<div class="card"><b>¿Quién usa este móvil?</b><div class="sub" style="margin:4px 0 12px">Así los gastos que apuntes saldrán como pagados por ti.</div><div class="two">'+ps.map(function(p){return '<button class="btn sec" style="margin:0" data-a="setme" data-v="'+p.id+'">'+esc(p.nombre)+'</button>'}).join('')+'</div><button class="link" style="margin-top:10px;font-size:14px" data-a="modo" data-v="solo">Uso la app solo, sin pareja</button></div>';
   var tot=0; ps.forEach(function(p){tot+=F.p[p.id].aport+Pu.p[p.id].aport});
   h+='<div class="hero"><div class="top"><div class="lbl">A ingresar en '+esc(comun())+'</div><div class="mnav"><button data-a="m-">‹</button><span>'+ymName(curYM)+'</span><button data-a="m+">›</button></div></div>'+
-     '<div class="big num">'+eur(tot)+'</div><div class="who">'+ps.map(function(p){var v=F.p[p.id].aport+Pu.p[p.id].aport;return '<div><span>'+esc(p.nombre)+'</span><b class="num">'+eur(v)+'</b></div>'}).join('')+'</div>';
+     '<div class="big num">'+eur(tot)+'</div>'+(ps.length<2?'':'<div class="who">'+ps.map(function(p){var v=F.p[p.id].aport+Pu.p[p.id].aport;return '<div><span>'+esc(p.nombre)+'</span><b class="num">'+eur(v)+'</b></div>'}).join('')+'</div>');
   var pt=puntuales(curYM).length;
   if(pt){h+='<div class="extra">Fijo mensual: '+ps.map(function(p){return esc(p.nombre)+' '+eur(F.p[p.id].aport)}).join(' · ')+'<br>Ajuste por '+pt+' gasto'+(pt>1?'s':'')+' puntual'+(pt>1?'es':'')+': '+ps.map(function(p){var a=Pu.p[p.id].aport;return esc(p.nombre)+' '+(a>=0?'+':'')+eur(a)}).join(' · ')+'</div>'}
   else h+='<div class="extra">Gastos fijos de '+eur(F.total)+'/mes · '+eur(F.enComun)+' se cargan en '+esc(comun())+'</div>';
   h+='</div>';
-  h+='<h2>Cada uno este mes</h2>';
-  ps.forEach(function(p){
+  if(solo()){
+    var p0=ps[0], f0=F.p[p0.id], u0=Pu.p[p0.id], g0=f0.parte+u0.parte, d0=f0.directo+u0.directo, a0=f0.aport+u0.aport, sg=[[f0.parte,'#8f45f2','Gastos fijos'],[u0.parte,'#e0559a','Gastos puntuales']];
+    h+='<h2>Tu mes</h2><div class="card pc">'+
+      '<div class="kv"><span>Gastos fijos del mes</span><b class="num">'+eur(f0.parte)+'</b></div>'+
+      '<div class="kv"><span>Gastos puntuales</span><b class="num">'+eur(u0.parte)+'</b></div>'+
+      '<div class="kv tot"><span>Total del mes</span><b class="num">'+eur(g0)+'</b></div>'+
+      '<div class="stack">'+sg.map(function(x){return '<i style="width:'+(x[0]/(g0||1)*100)+'%;background:'+x[1]+'"></i>'}).join('')+'</div>'+
+      '<div class="leg">'+sg.filter(function(x){return x[0]>0}).map(function(x){return '<span><i style="background:'+x[1]+'"></i>'+x[2]+'</span>'}).join('')+'</div>'+
+      '<div class="calc">'+(d0?'Pagas directamente desde tu cuenta personal: <b>'+eur(d0)+'</b>.<br>':'')+'Ingresa en la cuenta de gastos: <b>'+eur(a0)+'</b></div></div>';
+  } else h+='<h2>Cada uno este mes</h2>';
+  if(!solo())ps.forEach(function(p){
     var f=F.p[p.id], pu=Pu.p[p.id], com=f.comunParte+pu.comunParte, pro=f.propio+pu.propio, gastos=com+pro, dir=f.directo+pu.directo, ap=f.aport+pu.aport;
     var segs=[[com,'#8f45f2','Su parte de lo común'],[pro,p.color,'Gastos solo suyos']];
     var sum=gastos||1;
@@ -337,9 +351,9 @@ function renderHome(){
 
 function rowHtml(g){
   var c=C(g.cat), m=g.tipo==='fijo';
-  var sub=m?(repTxt(g)+' · '+perTxt(g.periodo)+' · '+desdeTxt(g.desde)):(fechaBonita(g.fecha)+' · '+repTxt(g)+' · pagó '+(g.desde==='comun'?'la cuenta común':(P(g.desde)||{}).nombre));
+  var sub=(m?[repTxt(g),perTxt(g.periodo),desdeTxt(g.desde)]:[fechaBonita(g.fecha),repTxt(g),solo()?'desde '+(g.desde==='comun'?'la cuenta de gastos':'tu cuenta personal'):'pagó '+(g.desde==='comun'?'la cuenta común':(P(g.desde)||{}).nombre)]).filter(Boolean).join(' · ');
   var right=m?('<b class="num">'+eur(mensual(g)||(+g.importe/Math.max(1,g.periodo)))+'</b><small>'+((+g.periodo||1)>1?eur(g.importe)+' '+perTxt(g.periodo).toLowerCase():'al mes')+'</small>'):('<b class="num">'+eur(g.importe)+'</b>');
-  var tg=g.titular!=='comun'?'<span class="tag" style="background:'+esc((P(g.titular)||{}).color)+'22;color:'+esc((P(g.titular)||{}).color)+'">'+esc((P(g.titular)||{}).nombre)+'</span>':'';
+  var tg=(!solo()&&g.titular!=='comun')?'<span class="tag" style="background:'+esc((P(g.titular)||{}).color)+'22;color:'+esc((P(g.titular)||{}).color)+'">'+esc((P(g.titular)||{}).nombre)+'</span>':'';
   return '<button class="row'+(g.activo===false?' off':'')+'" data-a="edit" data-v="'+esc(g.id)+'"><span class="ic" style="background:'+esc(c.color)+'22">'+esc(c.emoji)+'</span><span class="t"><b>'+tg+esc(g.concepto)+(g.activo===false?' (pausado)':'')+'</b><small>'+esc(sub)+'</small></span><span class="m">'+right+'</span></button>';
 }
 
@@ -380,10 +394,12 @@ function renderRep(){
   cs.forEach(function(x){var pct=x[1]/tot*100; segs+='<circle r="15.9155" cx="21" cy="21" fill="none" stroke="'+esc(x[0].color)+'" stroke-width="6" stroke-dasharray="'+Math.max(0,pct-.6)+' '+(100-Math.max(0,pct-.6))+'" stroke-dashoffset="'+(-acc)+'"/>'; acc+=pct});
   h+='<div class="card"><b>Gastos fijos por categoría</b><div class="donut" style="margin-top:12px"><div class="dc"><svg viewBox="0 0 42 42"><circle r="15.9155" cx="21" cy="21" fill="none" stroke="var(--line)" stroke-width="6"/>'+segs+'</svg><div class="c"><b class="num">'+eur0(tot)+'</b><small>'+(k===12?'al año':'al mes')+'</small></div></div><div class="lg">'+cs.map(function(x){return '<div><i style="width:10px;height:10px;border-radius:3px;background:'+esc(x[0].color)+'"></i><span>'+esc(x[0].emoji+' '+x[0].nombre)+'</span><b class="num">'+Math.round(x[1]/tot*100)+'%</b></div>'}).join('')+'</div></div></div>';
   // por persona
+  if(!solo()){
   var mx=Math.max.apply(null,ps.map(function(p){return F.p[p.id].parte*k}).concat([1]));
   h+='<div class="card"><b>Parte de gastos fijos por persona</b>'+ps.map(function(p){var o=F.p[p.id];return '<div class="hb"><span>'+esc(p.nombre)+'</span><i><u style="width:'+(o.parte*k/mx*100)+'%;background:'+esc(p.color)+'"></u></i><b class="num">'+eur0(o.parte*k)+'</b></div>'}).join('')+
      '<div class="sub" style="margin-top:6px">'+ps.map(function(p){var o=F.p[p.id];return esc(p.nombre)+': comunes '+eur(o.comunParte*k)+(o.propio?' + propios '+eur(o.propio*k):'')}).join('<br>')+'</div></div>';
   h+='<div class="tiles">'+ps.map(function(p){var o=F.p[p.id];return '<div class="tile"><span>'+esc(p.nombre)+' paga</span><b class="num">'+(F.total?Math.round(o.parte/F.total*100):0)+'%</b><span>'+eur0(o.parte*k)+' de '+eur0(F.total*k)+'</span></div>'}).join('')+'</div>';
+  }
   // top gastos
   var top=fijos().filter(function(g){return mensual(g)}).sort(function(a,b){return mensual(b)-mensual(a)}).slice(0,6), tm=top.length?mensual(top[0])*k:1;
   h+='<div class="card"><b>Los gastos fijos más altos</b>'+top.map(function(g){var c=C(g.cat);return '<div class="hb"><span>'+esc(c.emoji+' '+g.concepto)+'</span><i><u style="width:'+(mensual(g)*k/tm*100)+'%;background:'+esc(c.color)+'"></u></i><b class="num">'+eur(mensual(g)*k)+'</b></div>'}).join('')+'</div>';
@@ -393,9 +409,9 @@ function renderRep(){
   h+='<div class="card"><b>Gastos puntuales · últimos 6 meses</b><div class="vb">'+ms.map(function(m,i){return '<div><small class="num">'+(vals[i]?eur0(vals[i]):'')+'</small><u style="height:'+(vals[i]/vm*100)+'%"></u>'+ymShort(m)+'</div>'}).join('')+'</div></div>';
   // cuentas
   h+='<div class="card"><b>Desde qué cuenta se paga (fijos)</b>';
-  var dd={}; fijos().forEach(function(g){var m=mensual(g); if(m)dd[g.desde]=(dd[g.desde]||0)+m});
+  var dd={}; fijos().forEach(function(g){var m=mensual(g), d=(solo()&&g.desde!=='comun')?pers()[0].id:g.desde; if(m)dd[d]=(dd[d]||0)+m});
   var dm=Math.max.apply(null,Object.values(dd).concat([1]));
-  Object.keys(dd).forEach(function(d){var nm=d==='comun'?'Cuenta común':'Cuenta personal de '+(P(d)||{}).nombre;h+='<div class="hb"><span>'+esc(nm)+'</span><i><u style="width:'+(dd[d]/dm*100)+'%;background:'+(d==='comun'?'#8f45f2':esc((P(d)||{}).color))+'"></u></i><b class="num">'+eur0(dd[d]*k)+'</b></div>'});
+  Object.keys(dd).forEach(function(d){var nm=d==='comun'?CC():(solo()?'Cuenta personal':'Cuenta personal de '+(P(d)||{}).nombre);h+='<div class="hb"><span>'+esc(nm)+'</span><i><u style="width:'+(dd[d]/dm*100)+'%;background:'+(d==='comun'?'#8f45f2':esc((P(d)||{}).color))+'"></u></i><b class="num">'+eur0(dd[d]*k)+'</b></div>'});
   h+='</div>';
   h+=excelCard();
   $('#v-rep').innerHTML=h;
@@ -403,13 +419,14 @@ function renderRep(){
 
 function renderCfg(){
   var ps=pers(), b=LS.get('cc_backup',null), h='<div class="top"><h1>Ajustes</h1></div>';
-  h+='<h2>La pareja</h2><div class="grp sett">'+ps.map(function(p,i){return '<button class="row"'+(i?'':' style="border-top:0"')+' data-a="editp" data-v="'+p.id+'">'+avatar(p,38)+'<span class="t"><b>'+esc(p.nombre)+(me()===p.id?' <span class="tag" style="background:var(--acc2);color:var(--acc)">este móvil</span>':'')+'</b><small>Toca para cambiar nombre y color</small></span><span class="sub">›</span></button>'}).join('')+'</div>';
-  h+='<div class="card"><b>¿Quién usa este móvil?</b><div class="chips" style="margin-top:10px">'+ps.map(function(p){return '<button class="chip'+(me()===p.id?' on':'')+'" data-a="setme" data-v="'+p.id+'">'+esc(p.nombre)+'</button>'}).join('')+'</div></div>';
-  h+='<h2>Categorías</h2><div class="grp sett">'+cats().map(function(c,i){var n=alive(S.gastos).filter(function(g){return g.cat===c.id}).length;return '<button class="row"'+(i?'':' style="border-top:0"')+' data-a="editc" data-v="'+c.id+'"><span class="ic" style="background:'+esc(c.color)+'22">'+esc(c.emoji)+'</span><span class="t"><b>'+esc(c.nombre)+'</b><small>Reparto por defecto '+c.reparto+'/'+(100-c.reparto)+' · '+n+' gasto'+(n===1?'':'s')+'</small></span><span class="sub">›</span></button>'}).join('')+
+  h+='<h2>'+(solo()?'Tú':'La pareja')+'</h2><div class="card"><b>¿Cuántos usáis la app?</b><div class="sub" style="margin:4px 0 10px">Con pareja, la app reparte los gastos y calcula cuánto ingresa cada uno.</div><div class="seg" style="margin:0"><button data-a="modo" data-v="solo" class="'+(solo()?'on':'')+'">👤 Solo yo</button><button data-a="modo" data-v="pareja" class="'+(solo()?'':'on')+'">👫 En pareja</button></div></div>';
+  h+='<div class="grp sett">'+ps.map(function(p,i){return '<button class="row"'+(i?'':' style="border-top:0"')+' data-a="editp" data-v="'+p.id+'">'+avatar(p,38)+'<span class="t"><b>'+esc(p.nombre)+(!solo()&&me()===p.id?' <span class="tag" style="background:var(--acc2);color:var(--acc)">este móvil</span>':'')+'</b><small>Toca para cambiar nombre y color</small></span><span class="sub">›</span></button>'}).join('')+'</div>';
+  if(!solo())h+='<div class="card"><b>¿Quién usa este móvil?</b><div class="chips" style="margin-top:10px">'+ps.map(function(p){return '<button class="chip'+(me()===p.id?' on':'')+'" data-a="setme" data-v="'+p.id+'">'+esc(p.nombre)+'</button>'}).join('')+'</div></div>';
+  h+='<h2>Categorías</h2><div class="grp sett">'+cats().map(function(c,i){var n=alive(S.gastos).filter(function(g){return g.cat===c.id}).length;return '<button class="row"'+(i?'':' style="border-top:0"')+' data-a="editc" data-v="'+c.id+'"><span class="ic" style="background:'+esc(c.color)+'22">'+esc(c.emoji)+'</span><span class="t"><b>'+esc(c.nombre)+'</b><small>'+(solo()?'':'Reparto por defecto '+c.reparto+'/'+(100-c.reparto)+' · ')+n+' gasto'+(n===1?'':'s')+'</small></span><span class="sub">›</span></button>'}).join('')+
      '<button class="row" data-a="editc" data-v=""><span class="ic" style="background:var(--acc2);color:var(--acc)">＋</span><span class="t"><b style="color:var(--acc)">Nueva categoría</b></span></button></div>';
-  h+='<h2>Compartir con tu pareja</h2>'+shareCard(true);
+  if(!solo())h+='<h2>Compartir con tu pareja</h2>'+shareCard(true);
   h+='<h2>Copia de seguridad</h2><div class="card"><b>📁 Guardar copia en el móvil</b><div class="sub" style="margin:4px 0 0">Se abre el menú de compartir: elige <b>Guardar en Archivos</b>. Es tu copia de seguridad: guárdala de vez en cuando.</div><button class="btn" data-a="backup">Guardar copia</button><div class="sub" style="margin-top:8px">'+(b?'Última copia: '+esc(b.t):'Todavía no hay copia.')+'</div></div>';
-  h+='<div class="card"><b>🔄 Juntar o restaurar una copia</b><div class="sub" style="margin:4px 0 0">Elige un archivo <b>cuentas-claras-….json</b> (tuyo o de tu pareja). Se añaden los gastos nuevos y, si un gasto se editó en los dos móviles, gana el cambio más reciente. No se duplica nada.</div><label class="btn sec" style="text-align:center">Elegir archivo<input type="file" id="rf" accept="application/json,.json" style="display:none"></label></div>';
+  h+='<div class="card"><b>🔄 Juntar o restaurar una copia</b><div class="sub" style="margin:4px 0 0">Elige un archivo <b>cuentas-claras-….json</b>'+(solo()?'':' (tuyo o de tu pareja)')+'. Se añaden los gastos nuevos y, si un gasto se editó en dos móviles, gana el cambio más reciente. No se duplica nada.</div><label class="btn sec" style="text-align:center">Elegir archivo<input type="file" id="rf" accept="application/json,.json" style="display:none"></label></div>';
   h+='<h2>App</h2><div class="card"><b>Apariencia</b><div class="chips" style="margin-top:10px">'+[['','Automático'],['light','Claro'],['dark','Oscuro']].map(function(t){return '<button class="chip'+(LS.get('cc_theme','')===t[0]?' on':'')+'" data-a="theme" data-v="'+t[0]+'">'+t[1]+'</button>'}).join('')+'</div></div>';
   var nF=fijos().length, nP=puntuales().length;
   h+='<div class="card"><b>Estado</b><div class="sub" style="margin-top:6px;line-height:1.7">Versión de la app: '+VERSION+'<br>Gastos fijos: '+nF+' · puntuales: '+nP+'<br>Almacenamiento permanente: '+(persisted===true?'sí ✅':persisted===false?'no concedido (guarda copias)':'comprobando…')+'</div><button class="btn sec" data-a="update">⬇️ Buscar actualización</button></div>';
@@ -454,6 +471,7 @@ function drawEditor(first){
     h+='<label class="l">Fecha</label><input id="e-fec" type="date" value="'+esc(g.fecha||today())+'">';
   }
   h+='<label class="l">Categoría</label><div class="catg">'+cats().map(function(c){return '<button class="'+(g.cat===c.id?'on':'')+'" data-a="ecat" data-v="'+c.id+'"><em>'+esc(c.emoji)+'</em>'+esc(c.nombre)+'</button>'}).join('')+'</div>';
+  if(!solo()){
   h+='<label class="l">¿De quién es el gasto?</label><div class="seg" style="margin:0"><button data-a="etit" data-v="comun" class="'+(g.titular==='comun'?'on':'')+'">👫 Común</button>'+ps.map(function(p){return '<button data-a="etit" data-v="'+p.id+'" class="'+(g.titular===p.id?'on':'')+'">Solo '+esc(p.nombre)+'</button>'}).join('')+'</div>';
   if(g.titular==='comun'){
     var r=g.reparto==null?50:+g.reparto;
@@ -462,6 +480,10 @@ function drawEditor(first){
        '<div class="chips" style="margin-top:10px">'+[[50,'50/50'],[60,'60/40'],[40,'40/60'],[70,'70/30'],[30,'30/70'],[100,'100/0'],[0,'0/100']].map(function(o){return '<button class="chip'+(r===o[0]?' on':'')+'" data-a="erep" data-v="'+o[0]+'">'+o[1]+'</button>'}).join('')+'</div>'+
        '<div class="sub" id="e-rtxt" style="margin-top:8px"></div></div>';
   }
+  }
+  if(solo()){var sp=g.desde!=='comun';
+    h+='<label class="l">'+(isF?'¿Desde qué cuenta se paga?':'¿Desde dónde lo has pagado?')+'</label><div class="chips"><button class="chip'+(!sp?' on':'')+'" data-a="edes" data-v="comun">🏦 Cuenta de gastos</button><button class="chip'+(sp?' on':'')+'" data-a="edes" data-v="'+ps[0].id+'">Cuenta personal</button></div>';
+  } else
   h+='<label class="l">'+(isF?'¿Desde qué cuenta se paga?':'¿Quién lo ha pagado?')+'</label><div class="chips"><button class="chip'+(g.desde==='comun'?' on':'')+'" data-a="edes" data-v="comun">🏦 Cuenta común</button>'+ps.map(function(p){return '<button class="chip'+(g.desde===p.id?' on':'')+'" data-a="edes" data-v="'+p.id+'">'+(g.tipo==='fijo'?'Cuenta personal de ':'')+esc(p.nombre)+'</button>'}).join('')+'</div>';
   h+='<div class="calc" id="e-eff"></div>';
   if(isF)h+='<div class="toggle"><span>Activo <span class="sub">(desactívalo para pausarlo)</span></span><button class="sw'+(g.activo!==false?' on':'')+'" data-a="eact"></button></div>';
@@ -482,6 +504,7 @@ function updEff(){
   var c=$('#e-calc'); if(c)c.innerHTML=imp?'Equivale a <b>'+eur(imp/Math.max(1,+g.periodo||1))+' al mes</b> · '+eur(imp*12/Math.max(1,+g.periodo||1))+' al año':'Escribe el importe que pagas cada vez.';
   var e=$('#e-eff'); if(!e)return;
   if(!imp){e.innerHTML='';e.style.display='none';return} e.style.display='';
+  if(solo()){var pr=g.tipo==='fijo'?' al mes':'';e.innerHTML=g.desde==='comun'?'Suma <b>'+eur(m)+'</b>'+pr+' a lo que ingresas en la cuenta de gastos'+(g.tipo==='fijo'?'':' en '+ymName(String(g.fecha||today()).slice(0,7)))+'.':'Lo pagas desde tu cuenta personal: cuenta como gasto, pero no cambia lo que ingresas en la cuenta de gastos.';return}
   var parts=ps.map(function(p){var s=share(g,p.id)*m; var d=g.desde===p.id?m:0; return {p:p,s:s,a:s-d}});
   var t=parts.filter(function(x){return x.s>0}).map(function(x){return esc(x.p.nombre)+' <b>'+eur(x.s)+'</b>'}).join(' · ');
   var per=g.tipo==='fijo'?' al mes':'';
@@ -528,14 +551,14 @@ function drawCat(){
   h+='<label class="l">Nombre</label><input id="c-nom" value="'+esc(c.nombre)+'" placeholder="Ej. Mascotas">';
   h+='<label class="l">Icono</label><div class="emo">'+EMOJIS.map(function(e){return '<button data-a="cemo" data-v="'+e+'" class="'+(c.emoji===e?'on':'')+'">'+e+'</button>'}).join('')+'</div>';
   h+='<label class="l">Color</label><div class="colors">'+COLORS.map(function(x){return '<button data-a="ccol" data-v="'+x+'" class="'+(c.color===x?'on':'')+'" style="background:'+x+'"></button>'}).join('')+'</div>';
-  h+='<label class="l">Reparto por defecto para gastos comunes</label><div class="split"><div class="nm"><span style="color:'+esc(ps[0].color)+'">'+esc(ps[0].nombre)+' '+c.reparto+'%</span><span style="color:'+esc(ps[1].color)+'">'+(100-c.reparto)+'% '+esc(ps[1].nombre)+'</span></div><input type="range" id="c-rep" min="0" max="100" step="5" value="'+c.reparto+'" style="--p:'+c.reparto+'%;--ca:'+esc(ps[0].color)+';--cb:'+esc(ps[1].color)+'"></div>';
-  if(c.id&&n)h+='<button class="btn sec" data-a="capply">Aplicar este reparto a sus '+n+' gastos comunes</button>';
+  if(!solo())h+='<label class="l">Reparto por defecto para gastos comunes</label><div class="split"><div class="nm"><span style="color:'+esc(ps[0].color)+'">'+esc(ps[0].nombre)+' '+c.reparto+'%</span><span style="color:'+esc(ps[1].color)+'">'+(100-c.reparto)+'% '+esc(ps[1].nombre)+'</span></div><input type="range" id="c-rep" min="0" max="100" step="5" value="'+c.reparto+'" style="--p:'+c.reparto+'%;--ca:'+esc(ps[0].color)+';--cb:'+esc(ps[1].color)+'"></div>';
+  if(c.id&&n&&!solo())h+='<button class="btn sec" data-a="capply">Aplicar este reparto a sus '+n+' gastos comunes</button>';
   h+='<button class="btn" data-a="savec">Guardar</button>';
   if(c.id)h+='<button class="btn del" data-a="delc">Eliminar categoría</button>';
   var st=$('#sheet').classList.contains('on')?$('#sheet').scrollTop:0;
   openSheet(h); $('#sheet').scrollTop=st;
   $('#c-nom').oninput=function(){c.nombre=this.value};
-  $('#c-rep').oninput=function(){c.reparto=+this.value;this.style.setProperty('--p',this.value+'%');var nm=$('.split .nm').children;nm[0].textContent=ps[0].nombre+' '+this.value+'%';nm[1].textContent=(100-this.value)+'% '+ps[1].nombre};
+  if($('#c-rep'))$('#c-rep').oninput=function(){c.reparto=+this.value;this.style.setProperty('--p',this.value+'%');var nm=$('.split .nm').children;nm[0].textContent=ps[0].nombre+' '+this.value+'%';nm[1].textContent=(100-this.value)+'% '+ps[1].nombre};
 }
 
 // ---------- acciones ----------
@@ -550,6 +573,8 @@ document.addEventListener('click',function(e){
     case 'm+': curYM=ymAdd(curYM,1); render(); break;
     case 'gocfg': show('cfg'); break;
     case 'setme': LS.set('cc_me',v); render(); toast('Hola, '+P(v).nombre+' 👋'); break;
+    case 'modo': if(v==='pareja'&&alive(S.personas).length<2){S.personas.push({id:'p2',nombre:'Persona 2',color:'#e0559a',orden:2,u:now()})}
+      S.ajustes.modo=v; touch(S.ajustes); save(); render(); toast(v==='solo'?'👤 Modo solo: todos los gastos son tuyos':'👫 Modo pareja activado'); break;
     case 'gtab': gTab=v; render(); break;
     case 'rmode': repMode=v; render(); break;
     case 'edit': openEditor(S.gastos.find(function(g){return g.id===v})); break;
@@ -669,39 +694,58 @@ function H(a){return a.map(function(t){return {v:t,s:1}})}
 function E(n){return {v:r2(n||0),s:2}}
 function sumRow(label,cols,first,last,ncols){var r=[{v:label,s:3}];for(var i=1;i<ncols;i++)r.push(cols.indexOf(i)>=0?{f:'SUM('+colL(i)+first+':'+colL(i)+last+')',s:4}:{v:'',s:3});return r.map(function(c){return c.v===''?{v:' ',s:3}:c})}
 function libroExcel(){
-  var ps=pers(), A=ps[0], B=ps[1], nA=A.nombre, nB=B.nombre;
+  var ps=pers(), n=ps.length, two=n>1, cc=CC();
   var quien=function(g){return g.titular==='comun'?'Común':(P(g.titular)||{}).nombre};
-  var cta=function(g){return g.desde==='comun'?'Cuenta común':(g.tipo==='fijo'?'Cuenta personal de ':'')+(P(g.desde)||{}).nombre};
+  var cta=function(g){return g.desde==='comun'?cc:(two?(g.tipo==='fijo'?'Cuenta personal de ':'')+(P(g.desde)||{}).nombre:'Cuenta personal')};
+  var L=colL, nm=function(p){return two?' '+p.nombre:''};
   // 1. Resumen mensual
   var F=calcFijos(), ms=puntuales().map(function(g){return String(g.fecha).slice(0,7)}), hoy=ymOf(new Date());
   var desde=[hoy.slice(0,4)+'-01'].concat(ms).sort()[0], hasta=[hoy].concat(ms).sort().pop(), meses=[];
   for(var m=desde;m<=hasta;m=ymAdd(m,1))meses.push(m);
-  var R=[[{v:'Cuentas Claras · resumen mensual',s:7}],['Exportado el '+new Date().toLocaleString('es-ES')],[],
-    H(['Mes','Fijo '+nA,'Fijo '+nB,'Puntuales '+nA,'Puntuales '+nB,'Ingresa '+nA,'Ingresa '+nB,'Total a la cuenta común','Gasto puntual del mes'])];
-  meses.forEach(function(m){var Pu=calcPunt(m), r=R.length+1;
-    R.push([ymName(m).replace(/^./,function(c){return c.toUpperCase()}),E(F.p[A.id].aport),E(F.p[B.id].aport),E(Pu.p[A.id].aport),E(Pu.p[B.id].aport),{f:'B'+r+'+D'+r,s:2},{f:'C'+r+'+E'+r,s:2},{f:'F'+r+'+G'+r,s:2},E(Pu.total)])});
-  R.push(sumRow('Total',[1,2,3,4,5,6,7,8],5,R.length,9));
+  var hdr=['Mes'].concat(ps.map(function(p){return 'Fijo'+nm(p)}),ps.map(function(p){return 'Puntuales'+nm(p)}),two?ps.map(function(p){return 'Ingresa'+nm(p)}):[],['Total a '+cc.toLowerCase(),'Gasto puntual del mes']);
+  var R=[[{v:'Cuentas Claras · resumen mensual',s:7}],['Exportado el '+new Date().toLocaleString('es-ES')],[],H(hdr)];
+  meses.forEach(function(mm){var Pu=calcPunt(mm), r=R.length+1, row=[ymName(mm).replace(/^./,function(c){return c.toUpperCase()})];
+    ps.forEach(function(p){row.push(E(F.p[p.id].aport))}); ps.forEach(function(p){row.push(E(Pu.p[p.id].aport))});
+    if(two)ps.forEach(function(p,i){row.push({f:L(1+i)+r+'+'+L(1+n+i)+r,s:2})});
+    var tcols=two?ps.map(function(p,i){return L(1+2*n+i)+r}):[L(1)+r,L(2)+r];
+    row.push({f:tcols.join('+'),s:2}); row.push(E(Pu.total)); R.push(row)});
+  var rc=hdr.length, rsum=[]; for(var i=1;i<rc;i++)rsum.push(i);
+  R.push(sumRow('Total',rsum,5,R.length,rc));
   // 2. Gastos fijos
   var fx=fijos().slice().sort(function(a,b){return C(a.cat).orden-C(b.cat).orden||mensual(b)-mensual(a)});
-  var Fx=[H(['Concepto','Categoría','De quién','% '+nA,'% '+nB,'Importe','Cada (meses)','Al mes','Al año','Parte '+nA+'/mes','Parte '+nB+'/mes','Se paga desde','Activo','Notas'])];
-  fx.forEach(function(g){var r=Fx.length+1, on=g.activo!==false, sa=share(g,A.id), sb=share(g,B.id);
-    Fx.push([g.concepto,C(g.cat).nombre,quien(g),{v:sa,s:6},{v:sb,s:6},E(g.importe),+g.periodo||1,on?{f:'F'+r+'/G'+r,s:2}:E(0),{f:'H'+r+'*12',s:2},{f:'H'+r+'*D'+r,s:2},{f:'H'+r+'*E'+r,s:2},cta(g),on?'Sí':'No (pausado)',g.notas||''])});
-  Fx.push(sumRow('Total',[7,8,9,10],2,Fx.length,14));
+  var fh=['Concepto','Categoría'].concat(two?['De quién']:[],two?ps.map(function(p){return '%'+nm(p)}):[]);
+  var iPct=2+(two?1:0), iImp=fh.length; fh=fh.concat(['Importe','Cada (meses)','Al mes','Al año']);
+  var iMes=iImp+2, iAno=iImp+3, iPar=fh.length; if(two)fh=fh.concat(ps.map(function(p){return 'Parte'+nm(p)+'/mes'}));
+  fh=fh.concat(['Se paga desde','Activo','Notas']);
+  var Fx=[H(fh)];
+  fx.forEach(function(g){var r=Fx.length+1, on=g.activo!==false, row=[g.concepto,C(g.cat).nombre];
+    if(two){row.push(quien(g)); ps.forEach(function(p){row.push({v:share(g,p.id),s:6})})}
+    row.push(E(g.importe),+g.periodo||1,on?{f:L(iImp)+r+'/'+L(iImp+1)+r,s:2}:E(0),{f:L(iMes)+r+'*12',s:2});
+    if(two)ps.forEach(function(p,i){row.push({f:L(iMes)+r+'*'+L(iPct+i)+r,s:2})});
+    row.push(cta(g),on?'Sí':'No (pausado)',g.notas||''); Fx.push(row)});
+  var fs=[iMes,iAno]; if(two)ps.forEach(function(p,i){fs.push(iPar+i)});
+  Fx.push(sumRow('Total',fs,2,Fx.length,fh.length));
   // 3. Gastos puntuales
   var pu=puntuales().slice().sort(function(a,b){return String(a.fecha).localeCompare(b.fecha)});
-  var Px=[H(['Fecha','Concepto','Categoría','Importe','De quién','% '+nA,'% '+nB,'Parte '+nA,'Parte '+nB,'Pagado por','Notas'])];
-  pu.forEach(function(g){var r=Px.length+1;
-    Px.push([{d:g.fecha},g.concepto,C(g.cat).nombre,E(g.importe),quien(g),{v:share(g,A.id),s:6},{v:share(g,B.id),s:6},{f:'D'+r+'*F'+r,s:2},{f:'D'+r+'*G'+r,s:2},g.desde==='comun'?'Cuenta común':(P(g.desde)||{}).nombre,g.notas||''])});
-  if(pu.length)Px.push(sumRow('Total',[3,7,8],2,Px.length,11)); else Px.push(['Todavía no hay gastos puntuales']);
+  var ph=['Fecha','Concepto','Categoría','Importe'], jPct=5, jPar=5+n;
+  if(two)ph=ph.concat(['De quién'],ps.map(function(p){return '%'+nm(p)}),ps.map(function(p){return 'Parte'+nm(p)}));
+  ph=ph.concat([two?'Pagado por':'Pagado desde','Notas']);
+  var Px=[H(ph)];
+  pu.forEach(function(g){var r=Px.length+1, row=[{d:g.fecha},g.concepto,C(g.cat).nombre,E(g.importe)];
+    if(two){row.push(quien(g)); ps.forEach(function(p){row.push({v:share(g,p.id),s:6})}); ps.forEach(function(p,i){row.push({f:'D'+r+'*'+L(jPct+i)+r,s:2})})}
+    row.push(g.desde==='comun'?cc:(two?(P(g.desde)||{}).nombre:'Cuenta personal'),g.notas||''); Px.push(row)});
+  var psum=[3]; if(two)ps.forEach(function(p,i){psum.push(jPar+i)});
+  if(pu.length)Px.push(sumRow('Total',psum,2,Px.length,ph.length)); else Px.push(['Todavía no hay gastos puntuales']);
   // 4. Por categoría
-  var Cx=[H(['Categoría','Fijos al mes','Fijos al año','Puntuales (total)','Reparto por defecto '+nA])];
+  var Cx=[H(['Categoría','Fijos al mes','Fijos al año','Puntuales (total)'].concat(two?['Reparto por defecto '+ps[0].nombre]:[]))];
   cats().forEach(function(c){var r=Cx.length+1, pt=puntuales().filter(function(g){return g.cat===c.id}).reduce(function(s,g){return s+(+g.importe||0)},0);
-    Cx.push([c.nombre,E(F.cat[c.id]||0),{f:'B'+r+'*12',s:2},E(pt),{v:(c.reparto==null?50:c.reparto)/100,s:6}])});
-  Cx.push(sumRow('Total',[1,2,3],2,Cx.length,5));
+    var row=[c.nombre,E(F.cat[c.id]||0),{f:'B'+r+'*12',s:2},E(pt)]; if(two)row.push({v:(c.reparto==null?50:c.reparto)/100,s:6}); Cx.push(row)});
+  Cx.push(sumRow('Total',[1,2,3],2,Cx.length,two?5:4));
+  var w=function(a){return a.map(function(h,i){return i===0?(h==='Mes'||h==='Fecha'?14:26):Math.max(11,Math.min(26,String(h.v||h).length+3))})};
   return xlsx([
-    {name:'Resumen mensual',rows:R,widths:[18,14,14,16,16,14,14,22,20],freeze:4},
-    {name:'Gastos fijos',rows:Fx,widths:[26,16,12,9,9,12,12,12,12,15,15,24,12,30],freeze:1},
-    {name:'Gastos puntuales',rows:Px,widths:[12,26,16,12,12,9,9,12,12,16,30],freeze:1},
+    {name:'Resumen mensual',rows:R,widths:w(hdr),freeze:4},
+    {name:'Gastos fijos',rows:Fx,widths:w(fh),freeze:1},
+    {name:'Gastos puntuales',rows:Px,widths:w(ph),freeze:1},
     {name:'Por categoría',rows:Cx,widths:[20,14,14,18,22],freeze:1}
   ]);
 }
